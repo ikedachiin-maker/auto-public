@@ -4,7 +4,7 @@ import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 interface GenerateRequest {
   theme: string;
