@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.env
+.env.local
+.DS_Store
+scripts/kdp-uploader/.browser-profile/
+scripts/kdp-uploader/screenshots/
+research/runs/*/ebook/
+research/runs/*/combined.*
+research/runs/*/cover.*
+research/runs/*/*.epub
+research/runs/*/*.pdf
+*.log

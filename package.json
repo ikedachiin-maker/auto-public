@@ -1,0 +1,52 @@
+{
+  "name": "meta-ads-automation",
+  "version": "1.0.0",
+  "description": "Meta（Facebook/Instagram）広告の自動化ツールセット - 6つのMCPサーバー",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "keywords": [
+    "meta",
+    "facebook",
+    "instagram",
+    "ads",
+    "automation",
+    "marketing",
+    "mcp",
+    "claude",
+    "ai"
+  ],
+  "author": "ikedachiin@gmail.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/meta-ads-automation"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/node": "^25.3.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.3",
+    "eslint-config-next": "^16.1.6",
+    "next": "^16.1.6",
+    "playwright": "^1.58.2",
+    "postcss": "^8.5.8",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -182,9 +182,14 @@ async function main() {
  */
 async function checkNeedsLogin(page) {
   try {
-    // ログインフォームが表示されているか確認
-    const loginForm = await page.$('input[name="email"], #ap_email');
-    return loginForm !== null;
+    // /bookshelf にアクセスして認証が必要かチェック
+    await page.goto(`${KDP_URL}/bookshelf`, { waitUntil: 'networkidle' });
+    const currentUrl = page.url();
+    // ログイン・アカウント作成ページにリダイレクトされたらログインが必要
+    if (currentUrl.includes('/ap/signin') || currentUrl.includes('/ap/register') || currentUrl.includes('openid')) {
+      return true;
+    }
+    return false;
   } catch {
     return true;
   }
@@ -199,8 +204,8 @@ async function performLogin(page) {
   await humanType(page, emailSelector, KDP_EMAIL);
   await thinkingPause();
 
-  // パスワードフィールドが同じページにあるか確認
-  const passwordVisible = await page.$('input[name="password"], #ap_password');
+  // パスワードフィールドが表示されているか確認（hiddenでないこと）
+  const passwordVisible = await page.isVisible('input[name="password"], #ap_password').catch(() => false);
 
   if (!passwordVisible) {
     // 「次へ」ボタンをクリック
@@ -212,9 +217,9 @@ async function performLogin(page) {
     }
   }
 
-  // パスワード入力
+  // パスワード入力（表示されるまで待つ）
   const passwordSelector = 'input[name="password"], #ap_password';
-  await page.waitForSelector(passwordSelector, { timeout: 10000 });
+  await page.waitForSelector(passwordSelector, { state: 'visible', timeout: 30000 });
   await humanType(page, passwordSelector, KDP_PASSWORD);
   await thinkingPause();
 
@@ -297,67 +302,72 @@ async function startNewEbook(page) {
  * 書籍詳細（メタデータ）入力
  */
 async function fillBookDetails(page) {
-  // 言語選択
-  const langSelect = await page.$('#data-print-book-language, select[name*="language"]');
-  if (langSelect) {
-    await humanClick(page, '#data-print-book-language, select[name*="language"]');
-    await page.selectOption('#data-print-book-language, select[name*="language"]', { label: '日本語' }).catch(() => {});
-    await thinkingPause();
+  // 表示中のフィールドに値を入力するヘルパー（locator API使用）
+  async function fillField(selector, value) {
+    try {
+      // 表示されている要素のみ対象
+      const loc = page.locator(selector).filter({ visible: true }).first();
+      if (await loc.count() > 0) {
+        await loc.scrollIntoViewIfNeeded();
+        await loc.fill(value);
+        return true;
+      }
+    } catch {}
+    // フォールバック: JSで直接セット
+    try {
+      await page.evaluate(({ sel, val }) => {
+        const els = document.querySelectorAll(sel);
+        for (const el of els) {
+          if (el.offsetParent !== null && el.type !== 'hidden') {
+            el.value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return;
+          }
+        }
+      }, { sel: selector, val: value });
+    } catch {}
+    return false;
   }
+
+  // 言語選択（KDPカスタムドロップダウン → JSで直接設定）
+  await page.evaluate(() => {
+    const sel = document.querySelector('select[name="data[language]"], #data-language-native');
+    if (sel) {
+      const opt = Array.from(sel.options).find(o => o.text.includes('日本語') || o.value === 'ja');
+      if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+  }).catch(() => {});
+  await thinkingPause();
 
   // タイトル
-  const titleSelector = '#data-print-book-title, input[name*="title"]';
-  const titleInput = await page.$(titleSelector);
-  if (titleInput) {
-    await scrollToElement(page, titleSelector);
-    await humanType(page, titleSelector, config.title);
-  }
+  await fillField('input[name="data[title]"]', config.title);
   await sessionBreak();
 
-  // サブタイトル（あれば）
+  // サブタイトル
   if (config.subtitle) {
-    const subtitleSelector = '#data-print-book-subtitle, input[name*="subtitle"]';
-    const subtitleInput = await page.$(subtitleSelector);
-    if (subtitleInput) {
-      await scrollToElement(page, subtitleSelector);
-      await humanType(page, subtitleSelector, config.subtitle);
-    }
+    await fillField('input[name="data[subtitle]"]', config.subtitle);
   }
   await thinkingPause();
 
-  // 著者名
-  const authorSelector = '#data-print-book-primary-author-first-name, input[name*="author"]';
-  const authorInput = await page.$(authorSelector);
-  if (authorInput) {
-    await scrollToElement(page, authorSelector);
-    await humanType(page, authorSelector, config.author);
-  }
+  // 著者名（first_name フィールドに全名を入れる）
+  await fillField('input[name="data[contributors][0][first_name]"]', config.author);
   await thinkingPause();
 
   // 内容紹介
   if (config.description) {
-    const descSelector = '#data-print-book-description, textarea[name*="description"]';
-    const descInput = await page.$(descSelector);
-    if (descInput) {
-      await scrollToElement(page, descSelector);
-      await humanType(page, descSelector, config.description);
-    }
+    await fillField('textarea[name="data[long_description]"]', config.description);
   }
   await sessionBreak();
 
   // キーワード（最大7個）
   if (config.keywords && config.keywords.length > 0) {
     for (let i = 0; i < Math.min(config.keywords.length, 7); i++) {
-      const kwSelector = `#data-print-book-keywords-${i}, input[name*="keyword${i}"], input[name*="keyword"][data-index="${i}"]`;
-      const kwInput = await page.$(kwSelector);
-      if (kwInput) {
-        await humanType(page, kwSelector, config.keywords[i]);
-        await thinkingPause();
-      }
+      await fillField(`input[name="data[keywords][${i}]"]`, config.keywords[i]);
+      await thinkingPause();
     }
   }
 
-  // カテゴリ設定（手動対応が必要な場合が多い）
   console.log('   ℹ️  カテゴリは手動設定を推奨します');
 
   // 「保存して続行」ボタン
@@ -513,59 +523,78 @@ async function saveDraft(page) {
     }
   }
 
-  // 下書き保存ボタンを探す
-  const saveSelectors = [
-    'button:has-text("下書きとして保存")',
-    'button:has-text("Save as Draft")',
-    'input[value*="下書き"]',
-    '#save-draft-announce',
-    'button[data-action="save-draft"]',
-  ];
-
-  for (const sel of saveSelectors) {
+  // 下書き保存ボタンを探す（locator API）
+  const draftTexts = ['下書きとして保存', 'Save as Draft'];
+  for (const text of draftTexts) {
     try {
-      const btn = await page.$(sel);
-      if (btn) {
-        await humanClick(page, sel);
+      const btn = page.locator(`button:has-text("${text}"), input[value*="${text}"]`).first();
+      if (await btn.count() > 0) {
+        await btn.scrollIntoViewIfNeeded();
+        await btn.click();
         await page.waitForLoadState('networkidle');
+        console.log(`   ✅ 「${text}」ボタンをクリックしました`);
         return;
       }
-    } catch {
-      continue;
-    }
+    } catch { continue; }
   }
+  try {
+    const btn = page.locator('#save-draft-announce').first();
+    if (await btn.count() > 0) {
+      await btn.scrollIntoViewIfNeeded();
+      await btn.click();
+      await page.waitForLoadState('networkidle');
+      return;
+    }
+  } catch {}
 
   // 下書きボタンが見つからない場合
-  console.log('   ⚠️  下書き保存ボタンが見つかりませんでした。');
-  console.log('   手動で保存してください。');
+  console.log('   ⚠️  下書き保存ボタンが見つかりませんでした。手動で保存してください。');
+}
+
+/**
+ * ボタンをlocator APIでクリック（可視要素のみ）
+ */
+async function clickLocator(page, selector) {
+  const loc = page.locator(selector).filter({ visible: true }).first();
+  if (await loc.count() > 0) {
+    await loc.scrollIntoViewIfNeeded();
+    await loc.click();
+    return true;
+  }
+  return false;
 }
 
 /**
  * 「保存して続行」ボタンをクリック
  */
 async function clickSaveAndContinue(page) {
-  const continueSelectors = [
-    'button:has-text("保存して続行")',
-    'button:has-text("Save and Continue")',
-    'input[value*="保存して続行"]',
-    '#save-and-continue-announce',
-    'button[data-action="save-and-continue"]',
-    'input[type="submit"]',
-  ];
-
-  for (const sel of continueSelectors) {
+  await thinkingPause();
+  const buttonTexts = ['保存して続行', 'Save and Continue'];
+  for (const text of buttonTexts) {
     try {
-      const btn = await page.$(sel);
-      if (btn) {
-        await humanClick(page, sel);
+      const btn = page.locator(`button:has-text("${text}"), input[value*="${text}"]`).first();
+      if (await btn.count() > 0) {
+        await btn.scrollIntoViewIfNeeded();
+        await btn.click();
         await page.waitForLoadState('networkidle');
         await readingPause();
+        console.log(`   ✅ 「${text}」ボタンをクリックしました`);
         return;
       }
-    } catch {
-      continue;
-    }
+    } catch { continue; }
   }
+  // フォールバック: #save-and-continue-announce
+  try {
+    const btn = page.locator('#save-and-continue-announce').first();
+    if (await btn.count() > 0) {
+      await btn.scrollIntoViewIfNeeded();
+      await btn.click();
+      await page.waitForLoadState('networkidle');
+      await readingPause();
+      return;
+    }
+  } catch {}
+  console.log('   ⚠️  「保存して続行」ボタンが見つかりませんでした');
 }
 
 /**
