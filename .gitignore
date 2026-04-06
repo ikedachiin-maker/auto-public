@@ -11,3 +11,4 @@ research/runs/*/cover.*
 research/runs/*/*.epub
 research/runs/*/*.pdf
 *.log
+.vercel

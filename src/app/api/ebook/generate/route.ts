@@ -1,7 +1,7 @@
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
+import epub from 'epub-gen-memory';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -63,50 +63,6 @@ async function callClaude(
   const block = response.content[0];
   if (block.type !== 'text') return '';
   return block.text;
-}
-
-function generateCoverSvg(title: string, authorName: string, subtitle: string): string {
-  const escapedTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const escapedAuthor = authorName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const escapedSubtitle = subtitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  const words = escapedTitle.split(/\s|(?<=[\u3000-\u9fff\u30a0-\u30ff\u3040-\u309f])/);
-  const lineLength = 14;
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    if ((current + word).length > lineLength) {
-      if (current) lines.push(current);
-      current = word;
-    } else {
-      current += word;
-    }
-  }
-  if (current) lines.push(current);
-
-  const titleLines = lines.slice(0, 4);
-  const titleY = 320 - (titleLines.length - 1) * 30;
-
-  const titleSvgLines = titleLines
-    .map((line, i) => `<text x="300" y="${titleY + i * 56}" font-size="38" font-weight="bold" fill="white" text-anchor="middle" font-family="sans-serif">${line}</text>`)
-    .join('\n    ');
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#1a365d"/>
-      <stop offset="100%" stop-color="#2b6cb0"/>
-    </linearGradient>
-  </defs>
-  <rect width="600" height="800" fill="url(#bg)"/>
-  <rect x="40" y="40" width="520" height="720" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
-  <rect x="0" y="0" width="600" height="8" fill="#f6ad55"/>
-  <rect x="0" y="792" width="600" height="8" fill="#f6ad55"/>
-  ${titleSvgLines}
-  <line x1="60" y1="${titleY + titleLines.length * 56 + 10}" x2="540" y2="${titleY + titleLines.length * 56 + 10}" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
-  <text x="300" y="${titleY + titleLines.length * 56 + 50}" font-size="18" fill="rgba(255,255,255,0.85)" text-anchor="middle" font-family="sans-serif">${escapedSubtitle.slice(0, 36)}</text>
-  <text x="300" y="740" font-size="20" fill="rgba(255,255,255,0.9)" text-anchor="middle" font-family="sans-serif">${escapedAuthor}</text>
-</svg>`;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -289,117 +245,48 @@ ${chapterContent}
 
         send({ step: 'writing', status: 'completed', message: '全章の執筆完了' });
 
-        // ── Phase 4: EPUB生成 ──────────────────────────────────────────
+        // ── Phase 4: EPUB生成（epub-gen-memory）─────────────────────────
         send({ step: 'epub', status: 'running', message: 'EPUB生成中...' });
 
-        // style.css をコピー
-        const srcCss = path.join(projectRoot, 'research', 'runs', '20260325-200000__instagram-ebook-system', 'style.css');
-        const dstCss = path.join(runDir, 'style.css');
-        if (fs.existsSync(srcCss)) {
-          fs.copyFileSync(srcCss, dstCss);
-        } else {
-          fs.writeFileSync(dstCss, 'body { font-family: sans-serif; line-height: 1.8; }', 'utf-8');
-        }
-
-        // combined.md を作成
-        const combinedParts: string[] = [];
-        for (const fp of chapterFiles) {
-          combinedParts.push(fs.readFileSync(fp, 'utf-8'));
-          combinedParts.push('\n\n');
-        }
-        const combinedPath = path.join(runDir, 'combined.md');
-        fs.writeFileSync(combinedPath, combinedParts.join(''), 'utf-8');
-
-        // cover.png を SVG → PNG 変換で生成
-        const coverPath = path.join(runDir, 'cover.png');
-        const svgContent = generateCoverSvg(outline.title, authorName, outline.subtitle);
-        const svgPath = path.join(runDir, 'cover.svg');
-        fs.writeFileSync(svgPath, svgContent, 'utf-8');
-
-        // SVG を PNG に変換（rsvg-convert または ImageMagick を試みる）
-        let coverGenerated = false;
-        for (const cmd of [
-          `rsvg-convert -w 600 -h 800 "${svgPath}" -o "${coverPath}"`,
-          `/opt/homebrew/bin/rsvg-convert -w 600 -h 800 "${svgPath}" -o "${coverPath}"`,
-          `convert -size 600x800 "${svgPath}" "${coverPath}"`,
-          `/opt/homebrew/bin/convert -size 600x800 "${svgPath}" "${coverPath}"`,
-        ]) {
-          try {
-            execSync(cmd, { timeout: 15000 });
-            if (fs.existsSync(coverPath)) {
-              coverGenerated = true;
-              break;
-            }
-          } catch {
-            // 次のコマンドを試す
-          }
-        }
-
-        if (!coverGenerated) {
-          // フォールバック: SVG を PNG の代わりに使用（Pandocはsvgも受け付ける場合がある）
-          // または最低限のPNGバイナリを生成
-          try {
-            // Python で最小PNGを生成
-            const pyScript = `
-import struct, zlib
-w, h = 600, 800
-def png_chunk(name, data):
-    c = zlib.crc32(name + data) & 0xffffffff
-    return struct.pack('>I', len(data)) + name + data + struct.pack('>I', c)
-sig = b'\\x89PNG\\r\\n\\x1a\\n'
-ihdr = png_chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
-raw = b''
-for y in range(h):
-    raw += b'\\x00'
-    for x in range(w):
-        r = int(26 + (43-26)*y/h)
-        g = int(54 + (108-54)*y/h)
-        b2 = int(93 + (176-93)*y/h)
-        raw += bytes([r, g, b2])
-comp = zlib.compress(raw, 9)
-idat = png_chunk(b'IDAT', comp)
-iend = png_chunk(b'IEND', b'')
-with open('${coverPath.replace(/\\/g, '\\\\')}', 'wb') as f:
-    f.write(sig + ihdr + idat + iend)
-print('ok')
-`;
-            execSync(`python3 -c "${pyScript.replace(/\n/g, ' ').replace(/"/g, '\\"')}"`, { timeout: 15000 });
-            coverGenerated = fs.existsSync(coverPath);
-          } catch {
-            // カバーなしでEPUBを生成
-          }
-        }
-
-        // Pandoc で EPUB 生成
-        const safeTitleForMeta = outline.title.replace(/"/g, '\\"');
-        const safeAuthorForMeta = authorName.replace(/"/g, '\\"');
         const epubFileName = `${themeSlug}.epub`;
         const epubPath = path.join(runDir, epubFileName);
 
-        const pandocBase = '/opt/homebrew/bin/pandoc';
-        const coverArg = coverGenerated ? `--epub-cover-image="${coverPath}"` : '';
-        const cssArg = fs.existsSync(dstCss) ? `--css="${dstCss}"` : '';
-
-        const pandocCmd = [
-          pandocBase,
-          `"${combinedPath}"`,
-          `-o "${epubPath}"`,
-          coverArg,
-          cssArg,
-          `--metadata title="${safeTitleForMeta}"`,
-          `--metadata author="${safeAuthorForMeta}"`,
-          '--toc',
-          '--toc-depth=2',
-          '--epub-chapter-level=2',
-        ]
-          .filter(Boolean)
-          .join(' ');
+        // 各章のHTMLコンテンツを準備
+        const epubChapters = chapterFiles.map((fp) => {
+          const md = fs.readFileSync(fp, 'utf-8');
+          // 簡易Markdown→HTML変換
+          const html = md
+            .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+            .replace(/^(?!<[hulo])((?!<div|<p).+)$/gm, '<p>$1</p>')
+            .replace(/<p><\/p>/g, '')
+            .replace(/\n{2,}/g, '\n');
+          const titleMatch = md.match(/^##\s+(.+)$/m);
+          return {
+            title: titleMatch ? titleMatch[1] : path.basename(fp, '.md'),
+            content: html,
+          };
+        });
 
         try {
-          execSync(pandocCmd, { timeout: 120000 });
+          const epubBuffer = await epub(
+            {
+              title: outline.title,
+              author: authorName,
+              description: outline.description || '',
+              css: 'body { font-family: sans-serif; line-height: 1.8; } h2 { margin-top: 2em; } h3 { margin-top: 1.5em; } p { margin: 0.8em 0; } ul { margin: 0.5em 0; padding-left: 1.5em; }',
+            },
+            epubChapters
+          );
+          fs.writeFileSync(epubPath, epubBuffer);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          send({ step: 'error', status: 'error', message: `Pandocエラー: ${msg.slice(0, 200)}` });
+          send({ step: 'error', status: 'error', message: `EPUB生成エラー: ${msg.slice(0, 200)}` });
           done();
           return;
         }
@@ -424,7 +311,7 @@ print('ok')
           description: outline.description,
           keywords: outline.keywords.slice(0, 7),
           manuscriptPath: path.relative(projectRoot, epubPath),
-          coverPath: coverGenerated ? path.relative(projectRoot, coverPath) : existingConfig.coverPath,
+          coverPath: existingConfig.coverPath || '',
           price,
           royaltyPlan: '70',
           enableDRM: false,
@@ -441,7 +328,7 @@ print('ok')
           message: '電子書籍の生成が完了しました',
           outputDir: runDir,
           epubPath: path.relative(projectRoot, epubPath),
-          coverPath: coverGenerated ? path.relative(projectRoot, coverPath) : '',
+          coverPath: '',
           title: outline.title,
         });
 

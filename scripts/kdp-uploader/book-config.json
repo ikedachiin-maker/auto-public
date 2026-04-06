@@ -1,23 +1,21 @@
 {
-  "title": "月1万円で8,400人に届く ― まだ誰も書いていない\"認知広告\"という最安集客ルート",
-  "subtitle": "Instagram × Meta広告 認知キャンペーン完全ガイド",
-  "author": "合同会社アドマーケティング代表社員 池田宜史",
-  "description": "「認知広告」に特化した日本初の実践ガイド。月1万円の広告費でInstagram Reels広告を活用し、約8,400人にリーチする方法を全13章で解説。Meta OUTCOME_AWARENESS、Advantage+（ROI 22%向上）、クリエイティブ戦略、業種別ケーススタディ5選を収録。中小企業・個人事業主がすぐに実践できるステップバイステップ形式。2026年Q4のMeta完全AI自動化に備え、今こそ認知広告の仕組みを理解すべき時。",
+  "title": "副業eBay輸出で月20万円稼ぐ教科書",
+  "subtitle": "サラリーマン・OLのための1日2時間で始める海外販売完全ガイド",
+  "author": "池田宜史",
+  "description": "本業を続けながら月20万円の副収入を実現したい方へ。eBay輸出ビジネスは、初期投資3〜10万円、1日1〜2時間の作業で始められる理想的な副業です。本書では、商品リサーチから仕入れ、出品、発送まで、未経験者が6〜12ヶ月で月20万円を達成するための具体的なロードマップを提示。実際の成功事例、失敗パターンと対策、時間管理術まで網羅し、忙しいサラリーマンやOLでも無理なく継続できる方法を徹底解説します。円安効果で日本製品の競争力が高まる今こそ、海外販売で収入の柱を作りましょう。",
   "keywords": [
-    "インスタグラム 認知広告",
-    "Meta広告 初心者",
-    "Instagram Reels 広告",
-    "Advantage+ 広告",
-    "中小企業 SNS広告",
-    "ブランド認知 広告",
-    "Meta OUTCOME_AWARENESS"
+    "eBay輸出",
+    "副業",
+    "月20万円",
+    "サラリーマン",
+    "海外販売"
   ],
-  "manuscriptPath": "research/runs/20260325-200000__instagram-ebook-system/月1万円で8400人に届く_認知広告_最安集客ルート.epub",
+  "manuscriptPath": "research/runs/20260406-150139__ebay輸出/ebay輸出.epub",
   "coverPath": "research/runs/20260325-200000__instagram-ebook-system/cover.png",
-  "price": "2980",
+  "price": "99",
   "royaltyPlan": "70",
   "enableDRM": false,
   "language": "ja",
   "aiDisclosure": true,
-  "aiDisclosureText": "本書はAI支援ツール（Claude）を活用して執筆されています。データ・数値は公開情報に基づき、著者が検証・編集を行っています。"
+  "aiDisclosureText": "本書はAI支援ツール（Claude）を活用して執筆されています。著者が検証・編集を行っています。"
 }
