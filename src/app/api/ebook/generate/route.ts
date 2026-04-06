@@ -12,6 +12,7 @@ interface GenerateRequest {
   chapterCount: number;
   authorName: string;
   price: string;
+  lineUrl: string;
 }
 
 interface OutlineChapter {
@@ -124,7 +125,8 @@ export async function POST(req: Request): Promise<Response> {
 
       try {
         const body: GenerateRequest = await req.json();
-        const { theme, targetAudience, chapterCount, authorName, price } = body;
+        const { theme, targetAudience, authorName, price, lineUrl } = body;
+        const chapterCount = 7;
 
         const client = new Anthropic({
           apiKey: process.env.ANTHROPIC_API_KEY,
@@ -245,6 +247,26 @@ ${chapter.points.map((p) => `- ${p}`).join('\n')}
 ## はじめに
 
 ${chapterContent}
+`;
+          } else if (chapterNum === chapterCount && lineUrl) {
+            // 最終章にLINE登録CTAを追加
+            fileContent = `## 第${chapterNum}章 ${chapter.title}
+
+${chapterContent}
+
+---
+
+### さらに深く学びたいあなたへ
+
+本書でお伝えした内容は、ほんの入り口にすぎません。
+
+実践的なノウハウや最新情報、本書では書ききれなかった具体的な戦略を、LINE公式アカウントで無料配信しています。
+
+**今すぐ下のリンクから友だち追加してください：**
+
+${lineUrl}
+
+LINE登録していただいた方には、本書の内容をさらに深掘りした限定コンテンツをお届けします。あなたの次の一歩を、全力でサポートします。
 `;
           } else {
             fileContent = `## 第${chapterNum}章 ${chapter.title}

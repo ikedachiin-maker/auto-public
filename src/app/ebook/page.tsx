@@ -31,6 +31,7 @@ interface FormValues {
   chapterCount: number;
   authorName: string;
   price: string;
+  lineUrl: string;
 }
 
 // ─── 定数 ──────────────────────────────────────────────────────────────────
@@ -108,9 +109,10 @@ export default function EbookPage() {
   const [form, setForm] = useState<FormValues>({
     theme: '',
     targetAudience: '',
-    chapterCount: 10,
+    chapterCount: 7,
     authorName: '',
     price: '2980',
+    lineUrl: '',
   });
 
   const [running, setRunning] = useState(false);
@@ -135,8 +137,8 @@ export default function EbookPage() {
 
   const handleGenerate = async () => {
     if (running) return;
-    if (!form.theme.trim() || !form.targetAudience.trim() || !form.authorName.trim()) {
-      alert('テーマ、ターゲット読者、著者名を入力してください');
+    if (!form.theme.trim() || !form.targetAudience.trim() || !form.authorName.trim() || !form.lineUrl.trim()) {
+      alert('テーマ、ターゲット読者、著者名、LINE URLを入力してください');
       return;
     }
 
@@ -310,37 +312,35 @@ export default function EbookPage() {
                 />
               </div>
 
-              {/* 章数と価格 */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">章数</label>
-                  <select
-                    value={form.chapterCount}
-                    onChange={(e) => handleFieldChange('chapterCount', Number(e.target.value))}
-                    disabled={running}
-                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-                  >
-                    {Array.from({ length: 11 }, (_, i) => i + 5).map((n) => (
-                      <option key={n} value={n}>
-                        {n}章
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* LINE URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                  LINE URL <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="url"
+                  value={form.lineUrl}
+                  onChange={(e) => handleFieldChange('lineUrl', e.target.value)}
+                  placeholder="例: https://lin.ee/xxxxxxx"
+                  disabled={running}
+                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:opacity-50"
+                />
+                <p className="text-xs text-gray-500 mt-1">第7章の最後にLINE登録への誘導が挿入されます</p>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                    価格（円）
-                  </label>
-                  <input
-                    type="text"
-                    value={form.price}
-                    onChange={(e) => handleFieldChange('price', e.target.value)}
-                    placeholder="2980"
-                    disabled={running}
-                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-                  />
-                </div>
+              {/* 価格 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                  価格（円）
+                </label>
+                <input
+                  type="text"
+                  value={form.price}
+                  onChange={(e) => handleFieldChange('price', e.target.value)}
+                  placeholder="2980"
+                  disabled={running}
+                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                />
               </div>
 
               {/* 生成開始ボタン */}
