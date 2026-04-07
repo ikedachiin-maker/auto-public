@@ -51,7 +51,7 @@ async function callClaude(
 
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: 'claude-sonnet-4-5',
-    max_tokens: 8192,
+    max_tokens: 16384,
     messages,
   };
 
@@ -176,7 +176,7 @@ ${research}
 ${chapter.points.map((p) => `- ${p}`).join('\n')}
 
 執筆要件:
-- 5000〜8000字で書く
+- 3000字程度で書く
 - 具体的な数値・事例・実践手順を含める
 - 読者が実際に行動できる内容にする
 - 見出し（##、###）を効果的に使う
