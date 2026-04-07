@@ -120,7 +120,8 @@ export async function POST(req: Request): Promise<Response> {
 
         const outlineRaw = await callClaude(
           client,
-          `以下のリサーチ結果を元に、${targetAudience}向けの電子書籍のアウトラインを${chapterCount}章構成で生成してください。
+          `以下のリサーチ結果を元に、${targetAudience}向けの電子書籍のアウトラインを全${chapterCount}章構成で生成してください。
+「はじめに」は不要です。第1章から第${chapterCount}章までの${chapterCount}章のみ生成してください。
 
 リサーチ結果:
 ${research}
@@ -132,9 +133,9 @@ ${research}
   "description": "内容紹介文（300字程度）",
   "keywords": ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"],
   "chapters": [
-    {"number": 0, "title": "はじめに", "points": ["ポイント1", "ポイント2", "ポイント3"]},
     {"number": 1, "title": "第1章のタイトル", "points": ["ポイント1", "ポイント2", "ポイント3"]},
-    ...（${chapterCount}章まで）
+    {"number": 2, "title": "第2章のタイトル", "points": ["ポイント1", "ポイント2", "ポイント3"]},
+    ...（第${chapterCount}章まで）
   ]
 }`,
           '必ずJSONのみで返してください。説明文や前置きは不要です。'
@@ -153,25 +154,24 @@ ${research}
         send({ step: 'outline', status: 'completed', message: `アウトライン生成完了: 「${outline.title}」` });
 
         // ── Phase 3: 執筆 ──────────────────────────────────────────────
-        send({ step: 'writing', status: 'running', message: '執筆フェーズ開始...', chapter: 0, total: outline.chapters.length });
+        send({ step: 'writing', status: 'running', message: '執筆フェーズ開始...', chapter: 1, total: outline.chapters.length });
 
         const chapterFiles: string[] = [];
 
         for (const chapter of outline.chapters) {
           const chapterNum = chapter.number;
-          const isIntro = chapterNum === 0;
 
           send({
             step: 'writing',
             status: 'running',
-            message: `${isIntro ? 'はじめに' : `第${chapterNum}章「${chapter.title}」`}を執筆中...`,
+            message: `第${chapterNum}章「${chapter.title}」を執筆中...`,
             chapter: chapterNum,
             total: outline.chapters.length,
           });
 
           const chapterContent = await callClaude(
             client,
-            `以下の情報を元に、電子書籍の${isIntro ? '「はじめに」' : `第${chapterNum}章「${chapter.title}」`}を執筆してください。
+            `以下の情報を元に、電子書籍の第${chapterNum}章「${chapter.title}」を執筆してください。
 
 書籍タイトル: ${outline.title}
 対象読者: ${targetAudience}
@@ -192,24 +192,11 @@ ${chapter.points.map((p) => `- ${p}`).join('\n')}
             `あなたは${theme}の専門家です。${targetAudience}向けに実践的でわかりやすい文章を書いてください。`
           );
 
-          const fileName = `${zeroPad(chapterNum)}_${isIntro ? 'はじめに' : chapter.title}.md`;
+          const fileName = `${zeroPad(chapterNum)}_${chapter.title}.md`;
           const filePath = path.join(ebookDir, fileName);
 
           let fileContent: string;
-          if (isIntro) {
-            fileContent = `<div class="title-page">
-<h1 class="book-title">${outline.title}</h1>
-<p class="book-author">${authorName}</p>
-<p class="book-subtitle">${outline.subtitle}</p>
-</div>
-
-<div style="page-break-before: always;"></div>
-
-## はじめに
-
-${chapterContent}
-`;
-          } else if (chapterNum === chapterCount && lineUrl) {
+          if (chapterNum === chapterCount && lineUrl) {
             // 最終章にLINE登録CTAを追加
             fileContent = `## 第${chapterNum}章 ${chapter.title}
 
@@ -242,7 +229,7 @@ ${chapterContent}
           send({
             step: 'writing',
             status: 'running',
-            message: `${isIntro ? 'はじめに' : `第${chapterNum}章`}執筆完了`,
+            message: `第${chapterNum}章 執筆完了`,
             chapter: chapterNum,
             total: outline.chapters.length,
           });
