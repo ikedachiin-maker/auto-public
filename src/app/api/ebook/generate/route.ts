@@ -50,7 +50,7 @@ async function callClaude(
   ];
 
   const params: Anthropic.MessageCreateParamsStreaming = {
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-sonnet-4-5',
     max_tokens: 16384,
     messages,
     stream: true,
