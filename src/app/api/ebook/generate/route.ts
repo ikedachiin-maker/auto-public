@@ -88,14 +88,14 @@ export async function POST(req: Request): Promise<Response> {
           apiKey: process.env.ANTHROPIC_API_KEY,
         });
 
-        const projectRoot = process.cwd();
+        const tmpBase = process.env.VERCEL ? '/tmp' : process.cwd();
         const timestamp = new Date()
           .toISOString()
           .replace(/[-T:]/g, '')
           .slice(0, 14)
           .replace(/(\d{8})(\d{6})/, '$1-$2');
         const themeSlug = slugify(theme);
-        const runDir = path.join(projectRoot, 'research', 'runs', `${timestamp}__${themeSlug}`);
+        const runDir = path.join(tmpBase, 'research', 'runs', `${timestamp}__${themeSlug}`);
         const ebookDir = path.join(runDir, 'ebook');
         fs.mkdirSync(ebookDir, { recursive: true });
 
@@ -299,35 +299,42 @@ ${chapterContent}
 
         send({ step: 'epub', status: 'completed', message: 'EPUB生成完了' });
 
-        // ── Phase 5: book-config.json 更新 ────────────────────────────
-        const bookConfigPath = path.join(projectRoot, 'scripts', 'kdp-uploader', 'book-config.json');
-        const existingConfig = JSON.parse(fs.readFileSync(bookConfigPath, 'utf-8'));
+        // ── Phase 5: book-config.json 更新（ローカル環境のみ）─────────
+        const projectRoot = process.cwd();
+        if (!process.env.VERCEL) {
+          try {
+            const bookConfigPath = path.join(projectRoot, 'scripts', 'kdp-uploader', 'book-config.json');
+            const existingConfig = JSON.parse(fs.readFileSync(bookConfigPath, 'utf-8'));
 
-        const newConfig = {
-          ...existingConfig,
-          title: outline.title,
-          subtitle: outline.subtitle,
-          author: authorName,
-          description: outline.description,
-          keywords: outline.keywords.slice(0, 7),
-          manuscriptPath: path.relative(projectRoot, epubPath),
-          coverPath: existingConfig.coverPath || '',
-          price,
-          royaltyPlan: '70',
-          enableDRM: false,
-          language: 'ja',
-          aiDisclosure: true,
-          aiDisclosureText: '本書はAI支援ツール（Claude）を活用して執筆されています。著者が検証・編集を行っています。',
-        };
+            const newConfig = {
+              ...existingConfig,
+              title: outline.title,
+              subtitle: outline.subtitle,
+              author: authorName,
+              description: outline.description,
+              keywords: outline.keywords.slice(0, 7),
+              manuscriptPath: path.relative(projectRoot, epubPath),
+              coverPath: '',
+              price,
+              royaltyPlan: '70',
+              enableDRM: false,
+              language: 'ja',
+              aiDisclosure: true,
+              aiDisclosureText: '本書はAI支援ツール（Claude）を活用して執筆されています。著者が検証・編集を行っています。',
+            };
 
-        fs.writeFileSync(bookConfigPath, JSON.stringify(newConfig, null, 2), 'utf-8');
+            fs.writeFileSync(bookConfigPath, JSON.stringify(newConfig, null, 2), 'utf-8');
+          } catch {
+            // Vercel等の読み取り専用環境ではスキップ
+          }
+        }
 
         send({
           step: 'done',
           status: 'completed',
           message: '電子書籍の生成が完了しました',
           outputDir: runDir,
-          epubPath: path.relative(projectRoot, epubPath),
+          epubPath,
           coverPath: '',
           title: outline.title,
         });
