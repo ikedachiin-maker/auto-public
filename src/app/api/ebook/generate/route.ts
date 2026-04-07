@@ -43,7 +43,8 @@ function zeroPad(n: number): string {
 async function callClaude(
   client: Anthropic,
   prompt: string,
-  systemPrompt?: string
+  systemPrompt?: string,
+  maxTokens: number = 8192
 ): Promise<string> {
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: prompt },
@@ -51,7 +52,7 @@ async function callClaude(
 
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: 'claude-sonnet-4-5',
-    max_tokens: 16384,
+    max_tokens: maxTokens,
     messages,
     stream: true,
   };
@@ -109,8 +110,13 @@ export async function POST(req: Request): Promise<Response> {
 
         const research = await callClaude(
           client,
-          `${theme}について、${targetAudience}向けの電子書籍を書くためのリサーチをしてください。市場動向、重要な概念、読者が知りたい情報、具体的なデータや事例を含めて詳しくまとめてください。`,
-          '日本語で回答してください。マーケティングや実務に役立つ具体的な情報を中心にまとめてください。'
+          `${theme}について、${targetAudience}向けの電子書籍を書くためのリサーチをしてください。以下を簡潔にまとめてください：
+1. 市場動向とトレンド
+2. ターゲット読者の主な悩み・ニーズ（5つ）
+3. 競合書籍との差別化ポイント
+4. 具体的なデータや事例（3〜5つ）`,
+          '日本語で回答してください。箇条書きで簡潔にまとめてください。',
+          4096
         );
 
         send({ step: 'research', status: 'completed', message: 'リサーチ完了' });
@@ -138,7 +144,8 @@ ${research}
     ...（第${chapterCount}章まで）
   ]
 }`,
-          '必ずJSONのみで返してください。説明文や前置きは不要です。'
+          '必ずJSONのみで返してください。説明文や前置きは不要です。',
+          4096
         );
 
         let outline: Outline;
@@ -153,21 +160,23 @@ ${research}
 
         send({ step: 'outline', status: 'completed', message: `アウトライン生成完了: 「${outline.title}」` });
 
-        // ── Phase 3: 執筆 ──────────────────────────────────────────────
-        send({ step: 'writing', status: 'running', message: '執筆フェーズ開始...', chapter: 1, total: outline.chapters.length });
+        // ── Phase 3: 執筆（全章並列生成）─────────────────────────────
+        send({ step: 'writing', status: 'running', message: `全${outline.chapters.length}章を並列執筆中...`, chapter: 1, total: outline.chapters.length });
 
-        const chapterFiles: string[] = [];
+        // SSE keepalive: 接続切れ防止のため10秒ごとにハートビートを送信
+        const keepalive = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(': keepalive\n\n'));
+          } catch {
+            // controller already closed
+          }
+        }, 10000);
 
-        for (const chapter of outline.chapters) {
+        let completedCount = 0;
+        const chapterResults: { num: number; filePath: string }[] = [];
+
+        const chapterPromises = outline.chapters.map(async (chapter) => {
           const chapterNum = chapter.number;
-
-          send({
-            step: 'writing',
-            status: 'running',
-            message: `第${chapterNum}章「${chapter.title}」を執筆中...`,
-            chapter: chapterNum,
-            total: outline.chapters.length,
-          });
 
           const chapterContent = await callClaude(
             client,
@@ -181,7 +190,7 @@ ${research}
 ${chapter.points.map((p) => `- ${p}`).join('\n')}
 
 執筆要件:
-- 3000字程度で書く
+- 2000〜2500字程度で書く
 - 具体的な数値・事例・実践手順を含める
 - 読者が実際に行動できる内容にする
 - 見出し（##、###）を効果的に使う
@@ -189,7 +198,8 @@ ${chapter.points.map((p) => `- ${p}`).join('\n')}
 - 日本語で書く
 
 本文のみを出力してください（タイトルや章番号の見出し行は不要です）。`,
-            `あなたは${theme}の専門家です。${targetAudience}向けに実践的でわかりやすい文章を書いてください。`
+            `あなたは${theme}の専門家です。${targetAudience}向けに実践的でわかりやすい文章を書いてください。`,
+            8192
           );
 
           const fileName = `${zeroPad(chapterNum)}_${chapter.title}.md`;
@@ -197,7 +207,6 @@ ${chapter.points.map((p) => `- ${p}`).join('\n')}
 
           let fileContent: string;
           if (chapterNum === chapterCount && lineUrl) {
-            // 最終章にLINE登録CTAを追加
             fileContent = `## 第${chapterNum}章 ${chapter.title}
 
 ${chapterContent}
@@ -224,16 +233,24 @@ ${chapterContent}
           }
 
           fs.writeFileSync(filePath, fileContent, 'utf-8');
-          chapterFiles.push(filePath);
+          chapterResults.push({ num: chapterNum, filePath });
 
+          completedCount++;
           send({
             step: 'writing',
             status: 'running',
-            message: `第${chapterNum}章 執筆完了`,
-            chapter: chapterNum,
+            message: `第${chapterNum}章「${chapter.title}」執筆完了（${completedCount}/${outline.chapters.length}）`,
+            chapter: completedCount,
             total: outline.chapters.length,
           });
-        }
+        });
+
+        await Promise.all(chapterPromises);
+        clearInterval(keepalive);
+
+        // 章番号順にソート
+        chapterResults.sort((a, b) => a.num - b.num);
+        const chapterFiles = chapterResults.map((r) => r.filePath);
 
         send({ step: 'writing', status: 'completed', message: '全章の執筆完了' });
 
@@ -321,6 +338,9 @@ ${chapterContent}
           }
         }
 
+        // EPUBファイルをbase64エンコードしてフロントに送信（ダウンロード用）
+        const epubBase64 = fs.readFileSync(epubPath).toString('base64');
+
         send({
           step: 'done',
           status: 'completed',
@@ -329,6 +349,8 @@ ${chapterContent}
           epubPath,
           coverPath: '',
           title: outline.title,
+          epubBase64,
+          epubFileName: epubFileName,
         });
 
         done();

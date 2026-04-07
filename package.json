@@ -1,7 +1,7 @@
 {
-  "name": "meta-ads-automation",
+  "name": "auto-public",
   "version": "1.0.0",
-  "description": "Meta（Facebook/Instagram）広告の自動化ツールセット - 6つのMCPサーバー",
+  "description": "テーマ入力から電子書籍の自動生成・KDPアップロードまで一気通貫で行うWebダッシュボード",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
@@ -10,13 +10,11 @@
     "lint": "next lint"
   },
   "keywords": [
-    "meta",
-    "facebook",
-    "instagram",
-    "ads",
+    "ebook",
+    "kindle",
+    "kdp",
+    "epub",
     "automation",
-    "marketing",
-    "mcp",
     "claude",
     "ai"
   ],
@@ -24,7 +22,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-repo/meta-ads-automation"
+    "url": "https://github.com/ikedachiin-maker/auto-public"
   },
   "engines": {
     "node": ">=18.0.0",

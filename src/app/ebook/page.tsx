@@ -22,6 +22,8 @@ interface SseEvent {
   epubPath?: string;
   coverPath?: string;
   title?: string;
+  epubBase64?: string;
+  epubFileName?: string;
 }
 
 interface FormValues {
@@ -121,6 +123,8 @@ export default function EbookPage() {
   const [writingProgress, setWritingProgress] = useState<{ chapter: number; total: number } | null>(null);
   const [completed, setCompleted] = useState(false);
   const [resultTitle, setResultTitle] = useState('');
+  const [epubDownloadUrl, setEpubDownloadUrl] = useState<string | null>(null);
+  const [epubFileName, setEpubFileName] = useState('');
 
   const appendLog = (line: string) => {
     setLogs((prev) => [...prev, line]);
@@ -199,6 +203,9 @@ export default function EbookPage() {
     setLogs([]);
     setWritingProgress(null);
     setResultTitle('');
+    if (epubDownloadUrl) URL.revokeObjectURL(epubDownloadUrl);
+    setEpubDownloadUrl(null);
+    setEpubFileName('');
 
     try {
       const res = await fetch('/api/ebook/generate', {
@@ -275,6 +282,15 @@ export default function EbookPage() {
 
           if (event.step === 'done' && event.status === 'completed') {
             if (event.title) setResultTitle(event.title);
+            if (event.epubBase64 && event.epubFileName) {
+              const blob = new Blob(
+                [Uint8Array.from(atob(event.epubBase64), (c) => c.charCodeAt(0))],
+                { type: 'application/epub+zip' }
+              );
+              const url = URL.createObjectURL(blob);
+              setEpubDownloadUrl(url);
+              setEpubFileName(event.epubFileName);
+            }
           }
 
           appendLog(event.message);
@@ -488,9 +504,18 @@ export default function EbookPage() {
                 <div className="mt-4 p-4 bg-green-900/30 border border-green-700 rounded-lg">
                   <p className="text-sm text-green-300 font-medium mb-1">全工程完了</p>
                   {resultTitle && (
-                    <p className="text-xs text-gray-300">「{resultTitle}」の生成からKDPアップロードまで完了しました。</p>
+                    <p className="text-xs text-gray-300">「{resultTitle}」の生成が完了しました。</p>
                   )}
-                  <p className="text-xs text-amber-300 mt-2">最終公開はKDP管理画面で手動で行ってください。</p>
+                  {epubDownloadUrl && (
+                    <a
+                      href={epubDownloadUrl}
+                      download={epubFileName}
+                      className="inline-block mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      EPUBをダウンロード
+                    </a>
+                  )}
+                  <p className="text-xs text-amber-300 mt-2">KDPへのアップロードは、ダウンロードしたEPUBを手動でアップロードしてください。</p>
                 </div>
               )}
             </div>
