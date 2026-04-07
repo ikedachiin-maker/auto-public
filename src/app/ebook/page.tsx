@@ -1,11 +1,10 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
-type StepKey = 'research' | 'outline' | 'writing' | 'epub' | 'done';
+type StepKey = 'research' | 'outline' | 'writing' | 'epub' | 'kdp' | 'done';
 type StepStatus = 'idle' | 'running' | 'completed' | 'error';
 
 interface StepState {
@@ -36,13 +35,14 @@ interface FormValues {
 
 // ─── 定数 ──────────────────────────────────────────────────────────────────
 
-const STEP_ORDER: StepKey[] = ['research', 'outline', 'writing', 'epub', 'done'];
+const STEP_ORDER: StepKey[] = ['research', 'outline', 'writing', 'epub', 'kdp', 'done'];
 
 const STEP_LABELS: Record<StepKey, string> = {
   research: 'リサーチ',
   outline: 'アウトライン',
   writing: '執筆',
   epub: 'EPUB生成',
+  kdp: 'KDPアップロード',
   done: '完了',
 };
 
@@ -51,6 +51,7 @@ const INITIAL_STEPS: Record<StepKey, StepState> = {
   outline: { status: 'idle', message: '' },
   writing: { status: 'idle', message: '' },
   epub: { status: 'idle', message: '' },
+  kdp: { status: 'idle', message: '' },
   done: { status: 'idle', message: '' },
 };
 
@@ -103,7 +104,6 @@ const STEP_TEXT: Record<StepStatus, string> = {
 // ─── メインコンポーネント ────────────────────────────────────────────────────
 
 export default function EbookPage() {
-  const router = useRouter();
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState<FormValues>({
@@ -133,6 +133,57 @@ export default function EbookPage() {
 
   const handleFieldChange = (field: keyof FormValues, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // KDPアップロード処理
+  const runKdpUpload = async () => {
+    setStepState('kdp', { status: 'running', message: 'KDPアップロード開始...' });
+    appendLog('KDPアップロードを開始します...');
+
+    try {
+      const res = await fetch('/api/kdp/upload', { method: 'POST' });
+
+      if (!res.ok || !res.body) {
+        setStepState('kdp', { status: 'error', message: `HTTPエラー: ${res.status}` });
+        appendLog(`[ERROR] KDPアップロード HTTPエラー: ${res.status}`);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            const line = part.slice('data: '.length);
+            if (line === '[DONE]') {
+              setStepState('kdp', { status: 'completed', message: 'KDPアップロード完了' });
+              return;
+            }
+            appendLog(line);
+            setStepState('kdp', { status: 'running', message: line.slice(0, 60) });
+
+            if (line.startsWith('[ERROR]') || line.includes('❌')) {
+              setStepState('kdp', { status: 'error', message: line });
+            }
+          }
+        }
+      }
+
+      setStepState('kdp', { status: 'completed', message: 'KDPアップロード完了' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '不明なエラー';
+      setStepState('kdp', { status: 'error', message });
+      appendLog(`[ERROR] KDPアップロード: ${message}`);
+    }
   };
 
   const handleGenerate = async () => {
@@ -179,6 +230,11 @@ export default function EbookPage() {
           const line = part.slice('data: '.length);
 
           if (line === '[DONE]') {
+            // EPUB生成完了 → KDPアップロードへ自動遷移
+            await runKdpUpload();
+
+            setStepState('done', { status: 'completed', message: '全工程完了' });
+            setCompleted(true);
             setRunning(false);
             return;
           }
@@ -195,7 +251,6 @@ export default function EbookPage() {
 
           if (event.step === 'error') {
             appendLog(`[ERROR] ${event.message}`);
-            // mark all running steps as error
             setSteps((prev) => {
               const next = { ...prev };
               for (const k of STEP_ORDER) {
@@ -219,7 +274,6 @@ export default function EbookPage() {
           }
 
           if (event.step === 'done' && event.status === 'completed') {
-            setCompleted(true);
             if (event.title) setResultTitle(event.title);
           }
 
@@ -240,9 +294,9 @@ export default function EbookPage() {
       <header className="bg-gray-900 border-b border-gray-800 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">電子書籍 自動生成</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">電子書籍 自動生成 & KDPアップロード</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              テーマを入力するだけでリサーチ・執筆・EPUB生成を自動実行
+              テーマを入力するだけでリサーチ・執筆・EPUB生成・KDPアップロードまで一気通貫で自動実行
             </p>
           </div>
           <a
@@ -363,7 +417,7 @@ export default function EbookPage() {
                       生成中...
                     </span>
                   ) : (
-                    '生成開始'
+                    '生成 & アップロード開始'
                   )}
                 </button>
               </div>
@@ -371,9 +425,8 @@ export default function EbookPage() {
               {/* 注意書き */}
               <div className="p-3 bg-gray-800/60 border border-gray-700 rounded-lg">
                 <p className="text-xs text-gray-400 leading-relaxed">
-                  生成には章数に応じて 5〜20 分程度かかります。
-                  リサーチ・アウトライン・各章の執筆・EPUB組版を自動実行します。
-                  完了後は KDP アップロードページへ進めます。
+                  リサーチ・アウトライン・各章の執筆・EPUB生成・KDPアップロードまで一気通貫で自動実行します。
+                  最終公開はKDP管理画面で手動で行ってください。
                 </p>
               </div>
             </div>
@@ -404,7 +457,6 @@ export default function EbookPage() {
                           {step.message && (
                             <p className="text-xs text-gray-400 mt-0.5 truncate">{step.message}</p>
                           )}
-                          {/* 執筆の場合にプログレスバーを表示 */}
                           {key === 'writing' && writingProgress && step.status === 'running' && (
                             <div className="mt-1.5">
                               <div className="flex justify-between text-xs text-gray-500 mb-0.5">
@@ -431,22 +483,14 @@ export default function EbookPage() {
                 })}
               </div>
 
-              {/* 完了時: KDPアップロードボタン */}
+              {/* 全工程完了 */}
               {completed && (
                 <div className="mt-4 p-4 bg-green-900/30 border border-green-700 rounded-lg">
-                  <p className="text-sm text-green-300 font-medium mb-1">生成完了</p>
+                  <p className="text-sm text-green-300 font-medium mb-1">全工程完了</p>
                   {resultTitle && (
-                    <p className="text-xs text-gray-300 mb-3">「{resultTitle}」</p>
+                    <p className="text-xs text-gray-300">「{resultTitle}」の生成からKDPアップロードまで完了しました。</p>
                   )}
-                  <button
-                    onClick={() => router.push('/kdp')}
-                    className="w-full py-3 px-4 bg-green-600 hover:bg-green-500 active:scale-95 text-white font-bold rounded-lg transition-all duration-150 shadow-md flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    KDP アップロードへ進む
-                  </button>
+                  <p className="text-xs text-amber-300 mt-2">最終公開はKDP管理画面で手動で行ってください。</p>
                 </div>
               )}
             </div>
@@ -471,8 +515,8 @@ export default function EbookPage() {
                 ) : (
                   <div className="space-y-0.5">
                     {logs.map((line, idx) => {
-                      const isError = line.startsWith('[ERROR]') || line.includes('エラー');
-                      const isSuccess = line.includes('完了') || line.includes('成功');
+                      const isError = line.startsWith('[ERROR]') || line.includes('エラー') || line.includes('❌');
+                      const isSuccess = line.includes('完了') || line.includes('成功') || line.includes('✅');
                       return (
                         <div
                           key={idx}
