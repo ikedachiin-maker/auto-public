@@ -49,20 +49,25 @@ async function callClaude(
     { role: 'user', content: prompt },
   ];
 
-  const params: Anthropic.MessageCreateParamsNonStreaming = {
-    model: 'claude-sonnet-4-5',
+  const params: Anthropic.MessageCreateParamsStreaming = {
+    model: 'claude-sonnet-4-5-20241022',
     max_tokens: 16384,
     messages,
+    stream: true,
   };
 
   if (systemPrompt) {
     params.system = systemPrompt;
   }
 
-  const response = await client.messages.create(params);
-  const block = response.content[0];
-  if (block.type !== 'text') return '';
-  return block.text;
+  let text = '';
+  const stream = client.messages.stream(params);
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      text += event.delta.text;
+    }
+  }
+  return text;
 }
 
 export async function POST(req: Request): Promise<Response> {
