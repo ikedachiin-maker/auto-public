@@ -42,46 +42,109 @@ export async function executeKdpUpload(
     const cwdPath = pathModule.join(projectRoot, ...uploaderDir);
 
     return await new Promise<KDPUploadResult>((resolve) => {
-      childProcess.exec(
-        `node "${scriptPath}"`,
-        {
-          cwd: cwdPath,
-          timeout: 300000, // 5分タイムアウト
-          env: { ...process.env },
-        },
-        (error: Error | null, _stdout: string, stderr: string) => {
-          if (error) {
-            const message = error.message || 'KDPアップロードに失敗しました';
-            console.warn('[KDP] アップロードエラー:', message);
-            sse.send({
-              step: 'kdp-upload',
-              status: 'error',
-              message: `KDPアップロード失敗: ${message.slice(0, 200)}`,
-            });
-            resolve({
-              uploaded: false,
-              skipped: false,
-              reason: message,
-            });
-            return;
-          }
+      const child = childProcess.spawn('node', [scriptPath], {
+        cwd: cwdPath,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-          if (stderr) {
-            console.warn('[KDP] stderr:', stderr);
-          }
+      let stdoutBuffer = '';
+      let stderrBuffer = '';
+      const stdoutLines: string[] = [];
+      const stderrLines: string[] = [];
 
+      const flushLines = (
+        chunk: Buffer,
+        buffer: string,
+        target: string[],
+        prefix = ''
+      ): string => {
+        buffer += chunk.toString('utf-8');
+        const lines = buffer.split('\n');
+        const rest = lines.pop() ?? '';
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) continue;
+          target.push(line);
+          sse.send({
+            step: 'kdp-upload',
+            status: 'running',
+            message: `${prefix}${line}`,
+          });
+        }
+
+        return rest;
+      };
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdoutBuffer = flushLines(chunk, stdoutBuffer, stdoutLines);
+      });
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderrBuffer = flushLines(chunk, stderrBuffer, stderrLines, '[STDERR] ');
+      });
+
+      child.on('error', (error: Error) => {
+        const message = `KDPアップロードの起動に失敗しました: ${error.message}`;
+        console.warn('[KDP] 起動エラー:', message);
+        sse.send({
+          step: 'kdp-upload',
+          status: 'error',
+          message,
+        });
+        resolve({
+          uploaded: false,
+          skipped: false,
+          reason: message,
+        });
+      });
+
+      child.on('close', (code: number | null) => {
+        if (stdoutBuffer.trim()) {
+          stdoutLines.push(stdoutBuffer.trim());
+          sse.send({
+            step: 'kdp-upload',
+            status: 'running',
+            message: stdoutBuffer.trim(),
+          });
+        }
+
+        if (stderrBuffer.trim()) {
+          stderrLines.push(stderrBuffer.trim());
+          sse.send({
+            step: 'kdp-upload',
+            status: 'running',
+            message: `[STDERR] ${stderrBuffer.trim()}`,
+          });
+        }
+
+        if (code === 0) {
           sse.send({
             step: 'kdp-upload',
             status: 'completed',
             message: 'KDPアップロード完了 (下書き保存)',
           });
-
           resolve({
             uploaded: true,
             skipped: false,
           });
+          return;
         }
-      );
+
+        const reason = summarizeKdpFailure(code, stdoutLines, stderrLines);
+        console.warn('[KDP] アップロードエラー:', reason);
+        sse.send({
+          step: 'kdp-upload',
+          status: 'error',
+          message: reason,
+        });
+        resolve({
+          uploaded: false,
+          skipped: false,
+          reason,
+        });
+      });
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -96,4 +159,26 @@ export async function executeKdpUpload(
       reason: message,
     };
   }
+}
+
+function summarizeKdpFailure(
+  exitCode: number | null,
+  stdoutLines: string[],
+  stderrLines: string[]
+): string {
+  const combined = [...stderrLines, ...stdoutLines].join('\n');
+
+  if (combined.includes('ProcessSingleton') || combined.includes('Singleton')) {
+    return 'KDPアップロード失敗: ブラウザプロファイルが使用中です。前回開いたKDPブラウザを閉じてから再実行してください。';
+  }
+
+  const lastLine =
+    [...stderrLines].reverse().find((line) => line.trim()) ||
+    [...stdoutLines].reverse().find((line) => line.trim());
+
+  if (lastLine) {
+    return `KDPアップロード失敗: ${lastLine.slice(0, 220)}`;
+  }
+
+  return `KDPアップロード失敗: プロセスが異常終了しました (exit code: ${exitCode ?? 'null'})`;
 }
