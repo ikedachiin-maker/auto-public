@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
-type StepKey = 'research' | 'outline' | 'writing' | 'epub' | 'kdp' | 'done';
+type StepKey = 'research' | 'title' | 'outline' | 'writing' | 'quality-gate' | 'cover' | 'epub' | 'config' | 'kdp-upload' | 'done';
 type StepStatus = 'idle' | 'running' | 'completed' | 'error';
 
 interface StepState {
@@ -24,6 +24,9 @@ interface SseEvent {
   title?: string;
   epubBase64?: string;
   epubFileName?: string;
+  qualityScore?: number;
+  tokenUsage?: { totalInputTokens: number; totalOutputTokens: number; totalTokens: number; callCount: number };
+  durationMs?: number;
 }
 
 interface FormValues {
@@ -37,23 +40,31 @@ interface FormValues {
 
 // ─── 定数 ──────────────────────────────────────────────────────────────────
 
-const STEP_ORDER: StepKey[] = ['research', 'outline', 'writing', 'epub', 'kdp', 'done'];
+const STEP_ORDER: StepKey[] = ['research', 'title', 'outline', 'writing', 'quality-gate', 'cover', 'epub', 'config', 'kdp-upload', 'done'];
 
 const STEP_LABELS: Record<StepKey, string> = {
-  research: 'リサーチ',
-  outline: 'アウトライン',
-  writing: '執筆',
+  research: '多層リサーチ',
+  title: 'タイトル選定',
+  outline: '章構成設計',
+  writing: '執筆（7章並列）',
+  'quality-gate': '品質チェック',
+  cover: '表紙生成',
   epub: 'EPUB生成',
-  kdp: 'KDPアップロード',
+  config: '設定更新',
+  'kdp-upload': 'KDPアップロード',
   done: '完了',
 };
 
 const INITIAL_STEPS: Record<StepKey, StepState> = {
   research: { status: 'idle', message: '' },
+  title: { status: 'idle', message: '' },
   outline: { status: 'idle', message: '' },
   writing: { status: 'idle', message: '' },
+  'quality-gate': { status: 'idle', message: '' },
+  cover: { status: 'idle', message: '' },
   epub: { status: 'idle', message: '' },
-  kdp: { status: 'idle', message: '' },
+  config: { status: 'idle', message: '' },
+  'kdp-upload': { status: 'idle', message: '' },
   done: { status: 'idle', message: '' },
 };
 
@@ -122,6 +133,7 @@ export default function EbookPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [writingProgress, setWritingProgress] = useState<{ chapter: number; total: number } | null>(null);
   const [completed, setCompleted] = useState(false);
+  const hasErrorRef = useRef(false);
   const [resultTitle, setResultTitle] = useState('');
   const [epubDownloadUrl, setEpubDownloadUrl] = useState<string | null>(null);
   const [epubFileName, setEpubFileName] = useState('');
@@ -141,14 +153,14 @@ export default function EbookPage() {
 
   // KDPアップロード処理
   const runKdpUpload = async () => {
-    setStepState('kdp', { status: 'running', message: 'KDPアップロード開始...' });
+    setStepState('kdp-upload', { status: 'running', message: 'KDPアップロード開始...' });
     appendLog('KDPアップロードを開始します...');
 
     try {
       const res = await fetch('/api/kdp/upload', { method: 'POST' });
 
       if (!res.ok || !res.body) {
-        setStepState('kdp', { status: 'error', message: `HTTPエラー: ${res.status}` });
+        setStepState('kdp-upload', { status: 'error', message: `HTTPエラー: ${res.status}` });
         appendLog(`[ERROR] KDPアップロード HTTPエラー: ${res.status}`);
         return;
       }
@@ -169,23 +181,23 @@ export default function EbookPage() {
           if (part.startsWith('data: ')) {
             const line = part.slice('data: '.length);
             if (line === '[DONE]') {
-              setStepState('kdp', { status: 'completed', message: 'KDPアップロード完了' });
+              setStepState('kdp-upload', { status: 'completed', message: 'KDPアップロード完了' });
               return;
             }
             appendLog(line);
-            setStepState('kdp', { status: 'running', message: line.slice(0, 60) });
+            setStepState('kdp-upload', { status: 'running', message: line.slice(0, 60) });
 
             if (line.startsWith('[ERROR]') || line.includes('❌')) {
-              setStepState('kdp', { status: 'error', message: line });
+              setStepState('kdp-upload', { status: 'error', message: line });
             }
           }
         }
       }
 
-      setStepState('kdp', { status: 'completed', message: 'KDPアップロード完了' });
+      setStepState('kdp-upload', { status: 'completed', message: 'KDPアップロード完了' });
     } catch (err) {
       const message = err instanceof Error ? err.message : '不明なエラー';
-      setStepState('kdp', { status: 'error', message });
+      setStepState('kdp-upload', { status: 'error', message });
       appendLog(`[ERROR] KDPアップロード: ${message}`);
     }
   };
@@ -199,6 +211,7 @@ export default function EbookPage() {
 
     setRunning(true);
     setCompleted(false);
+    hasErrorRef.current = false;
     setSteps(INITIAL_STEPS);
     setLogs([]);
     setWritingProgress(null);
@@ -237,11 +250,10 @@ export default function EbookPage() {
           const line = part.slice('data: '.length);
 
           if (line === '[DONE]') {
-            // EPUB生成完了 → KDPアップロードへ自動遷移
-            await runKdpUpload();
-
-            setStepState('done', { status: 'completed', message: '全工程完了' });
-            setCompleted(true);
+            if (!hasErrorRef.current) {
+              setStepState('done', { status: 'completed', message: '全工程完了' });
+              setCompleted(true);
+            }
             setRunning(false);
             return;
           }
@@ -257,6 +269,7 @@ export default function EbookPage() {
           const key = event.step as StepKey;
 
           if (event.step === 'error') {
+            hasErrorRef.current = true;
             appendLog(`[ERROR] ${event.message}`);
             setSteps((prev) => {
               const next = { ...prev };
