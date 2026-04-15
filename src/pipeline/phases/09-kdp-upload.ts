@@ -55,7 +55,7 @@ export async function executeKdpUpload(
             console.warn('[KDP] アップロードエラー:', message);
             sse.send({
               step: 'kdp-upload',
-              status: 'completed',
+              status: 'error',
               message: `KDPアップロード失敗: ${message.slice(0, 200)}`,
             });
             resolve({
@@ -87,7 +87,7 @@ export async function executeKdpUpload(
     const message = err instanceof Error ? err.message : String(err);
     sse.send({
       step: 'kdp-upload',
-      status: 'completed',
+      status: 'error',
       message: `KDPアップロードスキップ: ${message.slice(0, 200)}`,
     });
     return {

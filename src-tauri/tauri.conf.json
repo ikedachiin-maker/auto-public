@@ -35,7 +35,10 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../scripts/**/*"
+      "../scripts/kdp-uploader/kdp-upload.js",
+      "../scripts/kdp-uploader/human-like.js",
+      "../scripts/kdp-uploader/book-config.json",
+      "../scripts/rebuild-epub.js"
     ],
     "externalBin": []
   },
